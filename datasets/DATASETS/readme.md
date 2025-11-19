@@ -1,1 +1,0 @@
-download at:  [zhulongyu1234/CS-HSI: Hyperspectral cross-scene classification dataset (github.com)](https://github.com/zhulongyu1234/CS-HSI/tree/main)
