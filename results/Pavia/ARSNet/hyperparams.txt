@@ -1,0 +1,33 @@
+save_path:results
+data_path:datasets/
+model_results:ACB/
+pretrained_model_path:None
+cuda:0
+dataset_name:Pavia
+source_data:paviaU.mat
+source_label:paviaU_7gt.mat
+target_data:paviaC.mat
+target_label:paviaC_7gt.mat
+patch_size:12
+lr:0.01
+batch_size:256
+seed:555
+log_interval:4
+num_epoch:300
+num_trials:1
+training_sample_ratio:0.8
+re_ratio:3
+flip_augmentation:True
+radiation_augmentation:True
+mixture_augmentation:False
+n_classes:7
+n_bands:102
+ignored_labels:[0]
+device:cuda:0
+center_pixel:False
+supervision:full
+Number of training set samples:94111
+Number of testing set samples:39348
+5.64K training parameters.
+FLOPs: 0.55MFLOPS
+Params: 5.71K

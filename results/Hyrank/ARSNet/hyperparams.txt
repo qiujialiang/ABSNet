@@ -1,0 +1,33 @@
+save_path:results
+data_path:datasets/
+model_results:ACB/
+pretrained_model_path:None
+cuda:0
+dataset_name:Hyrank
+source_data:Dioni.mat
+source_label:Dioni_gt_out68.mat
+target_data:Loukia.mat
+target_label:Loukia_gt_out68.mat
+patch_size:12
+lr:0.01
+batch_size:256
+seed:555
+log_interval:4
+num_epoch:300
+num_trials:1
+training_sample_ratio:0.8
+re_ratio:3
+flip_augmentation:True
+radiation_augmentation:True
+mixture_augmentation:False
+n_classes:12
+n_bands:176
+ignored_labels:[0]
+device:cuda:0
+center_pixel:False
+supervision:full
+Number of training set samples:48056
+Number of testing set samples:10287
+8.31K training parameters.
+FLOPs: 0.94MFLOPS
+Params: 8.43K
