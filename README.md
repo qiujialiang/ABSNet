@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🚀 ARSNet: Adaptive Rank Spectral Network for Lightweight Domain Generalization in Hyperspectral Image Classification
+# 🚀 ABSNet: Adaptive Rank Spectral Network for Lightweight Domain Generalization in Hyperspectral Image Classification
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/zhulongyu1234/ARSNet/blob/main/LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg)](https://pytorch.org/)
