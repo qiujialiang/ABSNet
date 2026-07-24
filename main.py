@@ -88,7 +88,7 @@ parser.add_argument('--num_epoch', type=int, default=300,
 parser.add_argument('--num_trials', type=int, default=1,
                     help='the number of epoch')
 parser.add_argument('--training_sample_ratio', type=float, default=0.8,
-                    help='training sample ratio')
+                    help='fraction of labeled source pixels used for training; the remainder is source validation')
 parser.add_argument('--re_ratio', type=int, default=3,
                     help='multiple of of data augmentation')
 
@@ -165,7 +165,9 @@ if __name__ == '__main__':
     source_gt = np.pad(source_gt, ((r, r), (r, r)), 'constant', constant_values=(0, 0))
     target_gt = np.pad(target_gt, ((r, r), (r, r)), 'constant', constant_values=(0, 0))
 
-    train_gt_src, _, _, _ = sample_gt(source_gt, args.training_sample_ratio, mode='random')
+    # Split only the labeled source scene.  The validation split, rather than target
+    # OA, is used to select the checkpoint.
+    train_gt_src, val_gt_src, _, _ = sample_gt(source_gt, args.training_sample_ratio, mode='random')
     test_gt_tar, _, _, _ = sample_gt(target_gt, 1, mode='random')
     source_hsi_re, train_gt_src_re = source_hsi, train_gt_src
 
@@ -184,7 +186,21 @@ if __name__ == '__main__':
                                    generator=g,
                                    shuffle=True,
                                    drop_last=True)
-    test_dataset = HyperX(target_hsi, test_gt_tar, **hyperparams)
+
+    # Never augment validation or target evaluation samples.
+    eval_hyperparams = hyperparams.copy()
+    eval_hyperparams.update({
+        'flip_augmentation': False,
+        'radiation_augmentation': False,
+        'mixture_augmentation': False,
+    })
+    val_dataset = HyperX(source_hsi, val_gt_src, **eval_hyperparams)
+    val_loader = data.DataLoader(val_dataset,
+                                 pin_memory=True,
+                                 batch_size=hyperparams['batch_size'],
+                                 shuffle=False,
+                                 drop_last=False)
+    test_dataset = HyperX(target_hsi, test_gt_tar, **eval_hyperparams)
     test_loader = data.DataLoader(test_dataset,
                                   pin_memory=True,
                                   # worker_init_fn=seed_worker,
@@ -193,10 +209,17 @@ if __name__ == '__main__':
                                   drop_last=False)
     len_src_loader = len(train_loader)
     len_src_dataset = len(train_loader.dataset)
+    len_val_dataset = len(val_loader.dataset)
     len_tar_dataset = len(test_loader.dataset)
     len_tar_loader = len(test_loader)
 
-    hyperparams.update({'Number of training set samples': len_src_dataset, 'Number of testing set samples': len_tar_dataset})
+    hyperparams.update({
+        'Number of source training samples': len_src_dataset,
+        'Number of source validation samples': len_val_dataset,
+        'Number of target testing samples': len_tar_dataset,
+        'Checkpoint selection': 'source validation OA',
+        'Target max OA': 'monitoring only; never used for checkpoint selection',
+    })
 
     model = ARSNet(num_classes, N_BANDS, hyperparams['patch_size']).to(DEVICE)
     model_dict = model.state_dict()
@@ -219,18 +242,30 @@ if __name__ == '__main__':
             file.write(f'{k}:{v}\n')
         file.write(f'{total_trainable_params / (1024):.2f}K training parameters.\n')
 
-    correct, max_acc = 0, 0
+    best_val_accuracy = -float('inf')
+    best_target_accuracy_at_source_checkpoint = None
+    max_target_accuracy = -float('inf')
     epoch_times = []
-    test_accuracy,aa,Kappa,predict_list, label_list = test(model, test_loader, DEVICE, task_logit_dir)
     for epoch in range(1, args.num_epoch + 1):
         epoch_start_time = time.time()
         model, _ = train(args, epoch, train_loader, len_src_dataset, DEVICE, model)
         epoch_end_time = time.time()
-        test_accuracy, aa, Kappa, predict_list, label_list = test(model, test_loader, DEVICE, task_logit_dir)
+        val_accuracy, _, _ = test(model, val_loader, DEVICE, task_logit_dir, split_name='source validation')
+        target_accuracy, predict_list, label_list = test(
+            model, test_loader, DEVICE, task_logit_dir, split_name='target evaluation')
         epoch_duration = epoch_end_time - epoch_start_time
         epoch_times.append(epoch_duration)
-        if test_accuracy > max_acc:
-            max_acc = test_accuracy
+
+        # Kept solely to reproduce the legacy monitoring convention.  It must not
+        # affect checkpoint selection, hyperparameters, or the saved prediction map.
+        if target_accuracy > max_target_accuracy:
+            max_target_accuracy = target_accuracy
+            with open(os.path.join(task_logit_dir, 'log_accuracy.txt'), 'a') as file:
+                file.write(f'epoch {epoch}: target monitoring max OA = {max_target_accuracy:.2f}%\n')
+
+        if val_accuracy > best_val_accuracy:
+            best_val_accuracy = val_accuracy
+            best_target_accuracy_at_source_checkpoint = target_accuracy
             predict_all = np.concatenate(predict_list)
             label_all = np.concatenate(label_list)
 
@@ -242,27 +277,32 @@ if __name__ == '__main__':
                                                 target_names=[str(i) for i in range(1, num_classes + 1)],digits=4)
             print(logs_report)
 
-            logs_max = f'max accuracy: {max_acc:.2f}%, AA: {aa:.2f}%, Kappa: {Kappa:.2f}%\n{logs_report}\n'
-            print(logs_max, end='')
+            checkpoint_log = (
+                f'source-validation-selected checkpoint: epoch {epoch}, '
+                f'source validation OA: {best_val_accuracy:.2f}%, '
+                f'target OA at this checkpoint: {target_accuracy:.2f}%\n{logs_report}\n'
+            )
+            print(checkpoint_log, end='')
 
             with open(os.path.join(task_logit_dir, 'log_accuracy.txt'), 'a') as file:
-                file.write(logs_max)
-                file.write(f'model_epoch{epoch}_acc{test_accuracy}_AA{aa}_Kappa{Kappa}\n')
+                file.write(checkpoint_log)
 
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
-                'test_accuracy': test_accuracy,
-                'AA': aa,
-                'Kappa': Kappa
+                'source_validation_accuracy': val_accuracy,
+                'target_accuracy_at_source_selected_checkpoint': target_accuracy,
             }, os.path.join(task_logit_dir, f'best_model_epoch.pt'))
             original_target_shape = (target_gt.shape[0] - 2*r, target_gt.shape[1] - 2*r)
             mat_filename = os.path.join(task_logit_dir, f'prediction_map.mat')
             prediction_map = save_prediction_as_mat(predict_list, test_dataset, original_target_shape, mat_filename)
 
         else:
-            logs_acc = f'Test result decline, present accuracy: {test_accuracy:.2f}% | max accuracy: {max_acc:.2f}%\n'
-            print(logs_acc)
+            print(
+                f'source validation OA: {val_accuracy:.2f}% | '
+                f'best source validation OA: {best_val_accuracy:.2f}% | '
+                f'target OA (monitoring only): {target_accuracy:.2f}%\n'
+            )
 
     avg_epoch_time = sum(epoch_times) / len(epoch_times)
     total_training_time = sum(epoch_times)
@@ -272,3 +312,8 @@ if __name__ == '__main__':
                     f'Average time per epoch: {avg_epoch_time:.2f} seconds\n'
     with open(os.path.join(task_logit_dir, 'log_accuracy.txt'), 'a') as file:
             file.write(time_stats)
+            file.write(
+                f'final source-validation-selected target OA: '
+                f'{best_target_accuracy_at_source_checkpoint:.2f}%\n'
+            )
+            file.write(f'legacy target monitoring max OA: {max_target_accuracy:.2f}%\n')
