@@ -44,7 +44,7 @@ def train(args, epoch, train_loader, len_src_dataset, device, model, **kwargs):
     return model, accuracy
 
 
-def test(model, test_loader, device, task_logit_dir):
+def test(model, test_loader, device, task_logit_dir, split_name='test'):
     model.eval()
     loss = 0
     correct_sample_num = 0
@@ -64,11 +64,10 @@ def test(model, test_loader, device, task_logit_dir):
             correct_sample_num += pred.eq(label.data.view_as(pred)).cpu().sum()
         loss /= len(test_loader)
         accuracy = 100. * correct_sample_num / len(test_loader.dataset)
-        logs = 'test loss of one batch: {:.4f}, test Accuracy: {}/{} ({:.2f}%)\n'.format(loss, correct_sample_num, len(
-            test_loader.dataset), accuracy)
+        logs = '{} loss of one batch: {:.4f}, {} Accuracy: {}/{} ({:.2f}%)\n'.format(
+            split_name, loss, split_name, correct_sample_num, len(test_loader.dataset), accuracy)
         print(logs, end='')
         with open(os.path.join(task_logit_dir, 'log_accuracy.txt'), 'a') as file:
             file.write(logs)
     return accuracy, pred_list, label_list
-
 
